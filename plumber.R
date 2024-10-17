@@ -7,8 +7,10 @@ csv_file <- "dados_regressao.csv"
 
 # Verificar se o arquivo CSV existe, se não, criar o arquivo com as colunas corretas
 if (!file.exists(csv_file)) {
-  write_csv(data.frame(x = numeric(), grupo = character(), y = numeric(), momento_registro = character()), csv_file)
+  write_csv(data.frame(x = numeric(), grupo = character(), y = numeric(), 
+                       momento_registro = character()), csv_file)
 }
+
 
 #* @apiTitle API para manipulação de dados de regressão
 
@@ -101,14 +103,20 @@ function(id, x = NULL, grupo = NULL, y = NULL) {
     if (is.na(x)) {
       return(list(error = "O valor de x deve ser numérico."))
     }
-    df$x[id] <- x
+    if (df[id, "x"] == x){
+      return(list(error = "O valor fornecido de x é igual ao existente neste id"))
+    }
+    df[id,"x"] <- x
   }
   
   if (!is.null(grupo)) {
     if (!grupo %in% c("A", "B", "C")) {
       return(list(error = "O grupo deve ser 'A', 'B' ou 'C'."))
     }
-    df$grupo[id] <- grupo
+    if (df[id, "grupo"] == grupo){
+      return(list(error = "O grupo é igual ao existente neste id"))
+    } 
+    df[id,"grupo"] <- grupo
   }
   
   if (!is.null(y)) {
@@ -116,32 +124,48 @@ function(id, x = NULL, grupo = NULL, y = NULL) {
     if (is.na(y)) {
       return(list(error = "O valor de y deve ser numérico."))
     }
-    df$y[id] <- y
+    if (df[id, "y"] == y){
+      return(list(error = "O valor fornecido de y é igual ao existente neste id"))
+    }
+    df[id, "y"] <- y
   }
   
   # Salvar o arquivo atualizado
-  write_csv(df, csv_file)
   
-  return(list(success = TRUE, registro_atualizado = df[id, ]))
+  # Salvar o arquivo atualizado
+  
+  tryCatch({
+    write_csv(df, csv_file)
+    return(df[id,])
+  }, error = function(e) {
+    return(list(error = "Erro ao salvar o arquivo CSV."))
+  })
+ # write_csv(df, csv_file)
+  
+  #return(list(success = TRUE, registro_atualizado = df[id, ]))
 }
 
 #* Deletar um registro existente no banco de dados
 #* @param id O índice do registro a ser deletado
 #* @delete /delete_record
 function(id) {
-  # Ler o banco de dados
-  df <- read_csv(csv_file)
+  col_spec <- cols(
+    x = col_double(),
+    grupo = col_character(),
+    y = col_double(),
+    momento_registro = col_datetime(format = "")
+  )
   
-  # Verificar se o ID existe
-  if (id < 1 || id > nrow(df)) {
-    return(list(error = "ID inválido."))
+  df <- read_csv(csv_file, col_types = col_spec)
+  
+  id <- as.numeric(id)
+  
+  if (is.na(id) || id < 1 || id > nrow(df)) {
+    return(list(error = paste("ID inválido. O ID deve estar entre 1 e", nrow(df))))
   }
-  
-  # Deletar o registro
   df <- df[-id, ]
   
-  # Salvar o arquivo atualizado
   write_csv(df, csv_file)
   
-  return(list(success = TRUE, message = paste("Registro", id, "deletado.")))
+  return(df)
 }
