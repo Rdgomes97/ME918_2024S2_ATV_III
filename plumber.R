@@ -1,41 +1,19 @@
 library(plumber)
 library(readr)
 library(lubridate)
+library(ggplot2)
 
 # Definir o nome do arquivo CSV
 csv_file <- "dados_regressao.csv"
 
 # Verificar se o arquivo CSV existe, se não, criar o arquivo com as colunas corretas
 if (!file.exists(csv_file)) {
-  write_csv(data.frame(x = numeric(), grupo = character(), y = numeric(), 
+  readr::write_csv(data.frame(x = numeric(), grupo = character(), y = numeric(), 
                        momento_registro = character()), csv_file)
 }
 
 
 #* @apiTitle API para manipulação de dados de regressão
-
-#* Echo back the input
-#* @param msg The message to echo
-#* @get /echo
-function(msg=""){
-  list(msg = paste0("The message is: '", msg, "'"))
-}
-
-#* Plot a histogram
-#* @serializer png
-#* @get /plot
-function(){
-  rand <- rnorm(100)
-  hist(rand)
-}
-
-#* Return the sum of two numbers
-#* @param a The first number to add
-#* @param b The second number to add
-#* @post /sum
-function(a, b){
-  as.numeric(a) + as.numeric(b)
-}
 
 #* Inserir um novo registro no banco de dados
 #* @param x O valor de x (numérico)
@@ -66,9 +44,10 @@ function(x, grupo, y) {
   )
   
   # Adicionar o novo registro ao CSV
-  write_csv(novo_registro, csv_file, append = TRUE)
+  readr::write_csv(novo_registro, csv_file, append = TRUE)
   
-  return(list(success = TRUE, registro = novo_registro))
+  return(list(mensagem = "Novo registro computado no arquivo CSV.", 
+              registro = novo_registro))
 }
 
 #* Modificar um registro existente no banco de dados
@@ -80,7 +59,7 @@ function(x, grupo, y) {
 
 function(id, x = NULL, grupo = NULL, y = NULL) {
   # Ler o banco de dados
-  df <- read_csv(csv_file)
+  df <- readr::read_csv(csv_file)
   
   # Imprimir o dataframe e o número de linhas para diagnóstico
   print(df)
@@ -97,14 +76,22 @@ function(id, x = NULL, grupo = NULL, y = NULL) {
     return(list(error = paste("ID inválido. O ID deve estar entre 1 e", nrow(df))))
   }
   
+  if (df[id, "x"] == x){
+    print(list(error = "O valor fornecido de x é igual ao existente neste id"))
+  }
+  if (df[id, "grupo"] == grupo){
+    print(list(error = "O grupo fornecido é igual ao existente neste id"))
+  }
+  if (df[id, "y"] == y){
+    print(list(error = "O valor fornecido de y é igual ao existente neste id"))
+  }
+  
+  
   # Atualizar os valores se fornecidos, verificando se há apenas um valor e se é numérico
   if (!is.null(x)) {
     x <- as.numeric(x)
     if (is.na(x)) {
       return(list(error = "O valor de x deve ser numérico."))
-    }
-    if (df[id, "x"] == x){
-      return(list(error = "O valor fornecido de x é igual ao existente neste id"))
     }
     df[id,"x"] <- x
   }
@@ -113,9 +100,6 @@ function(id, x = NULL, grupo = NULL, y = NULL) {
     if (!grupo %in% c("A", "B", "C")) {
       return(list(error = "O grupo deve ser 'A', 'B' ou 'C'."))
     }
-    if (df[id, "grupo"] == grupo){
-      return(list(error = "O grupo é igual ao existente neste id"))
-    } 
     df[id,"grupo"] <- grupo
   }
   
@@ -124,28 +108,20 @@ function(id, x = NULL, grupo = NULL, y = NULL) {
     if (is.na(y)) {
       return(list(error = "O valor de y deve ser numérico."))
     }
-    if (df[id, "y"] == y){
-      return(list(error = "O valor fornecido de y é igual ao existente neste id"))
-    }
     df[id, "y"] <- y
   }
   
-  # Salvar o arquivo atualizado
-  
-  # Salvar o arquivo atualizado
-  
   tryCatch({
-    write_csv(df, csv_file)
-    return(df[id,])
+    readr::write_csv(df, csv_file)
+    return(list(mensagem = paste("CSV. após a alteração do ID:", id), 
+                data_frame = df))
   }, error = function(e) {
     return(list(error = "Erro ao salvar o arquivo CSV."))
   })
- # write_csv(df, csv_file)
-  
-  #return(list(success = TRUE, registro_atualizado = df[id, ]))
 }
 
 #* Deletar um registro existente no banco de dados
+#*  Fazer com que seja possível deletar mais de um id por vez
 #* @param id O índice do registro a ser deletado
 #* @delete /delete_record
 function(id) {
@@ -156,7 +132,7 @@ function(id) {
     momento_registro = col_datetime(format = "")
   )
   
-  df <- read_csv(csv_file, col_types = col_spec)
+  df <- readr::read_csv(csv_file, col_types = col_spec)
   
   id <- as.numeric(id)
   
@@ -165,7 +141,60 @@ function(id) {
   }
   df <- df[-id, ]
   
-  write_csv(df, csv_file)
+  readr::write_csv(df, csv_file)
   
-  return(df)
+  resultado <- list(mensagem = paste("CSV. após o ID:", id, "ser deletado"), 
+                    data_frame = df)
+  
+  return(resultado)
 }
+
+
+# Gráfico dispersão com Regressão
+#* @serializer png
+#* @get /grafico_dispersao
+function() {
+  grafico <- ggplot2::ggplot(df, aes(x = x, y = y, color = grupo)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "black") +  # Reta de regressão
+  labs(title = "Gráfico de Dispersão com Regressão",
+       x = "X",
+       y = "Y",
+       color = "Grupo") +
+  theme_minimal()
+return(grafico)
+}
+
+
+# Cálculo dos coeficientes de regressão 
+#*@parser json
+#* @serializer unboxedJSON
+#* @get /estimativas_coeficientes
+function() {
+  modelo <- lm(y ~ x + grupo, data = df)
+  coeficientes <- list(intercepto = modelo$coefficients[1],
+                       x = modelo$coefficients[2],
+                       grupoB = modelo$coefficients[3],
+                       grupoC = modelo$coefficients[4])
+
+return(coeficientes)
+}
+
+
+# Predição do modelo de Regressão 
+# Precisa otimizar, não colocar os números diretamente 
+#* @param x
+#* @param grupo
+#* @parser json
+#* @serializer unboxedJSON
+#* @get /predicao
+function(x,grupo) {
+  if (grupo == "B") {
+    coef <- 1.427378}
+  else if (grupo == "C") {  
+    coef <- 3.442200}
+  else {
+    coef <- 0
+  }
+  y <- 1.155123*as.numeric(x) + coef +  1.356496
+  print(y)}
