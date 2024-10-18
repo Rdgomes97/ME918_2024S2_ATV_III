@@ -167,6 +167,7 @@ return(grafico)
 
 
 # Cálculo dos coeficientes de regressão 
+# Cria as variáveis dummy e utiliza o grupo A como referência 
 #*@parser json
 #* @serializer unboxedJSON
 #* @get /estimativas_coeficientes
@@ -197,4 +198,5 @@ function(x,grupo) {
     coef <- 0
   }
   y <- 1.155123*as.numeric(x) + coef +  1.356496
-  print(y)}
+  print(y)
+  }
