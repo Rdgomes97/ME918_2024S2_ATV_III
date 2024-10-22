@@ -182,6 +182,47 @@ return(coeficientes)
 }
 
 
+# Resíduos da Regressão 
+#*@parser json
+#* @serializer unboxedJSON
+#* @get /residuos
+function() {
+  residuos <- lm(y ~ x + grupo, data = df)$residuals 
+  return(list(mensagem = "Resíduos do modelo de regressão",
+    Residuos = residuos 
+  ))
+}
+
+
+
+# Gráfico Valores Observados x Resíduos 
+#* @serializer jpeg
+#* @get /grafico_residuos
+function() {
+  df <- read_csv(csv_file)
+  
+  dados_graf <- data.frame(residuos = lm(y ~ x + grupo, data = df)$residuals, 
+                           observados = df$y) 
+  
+  grafico_res <- ggplot2::ggplot(dados_graf) +
+    geom_point(mapping = aes(observados, residuos), color = "red") +
+    labs(
+      x = "Obsevados (y)",
+      y = "Resíduos",
+      title = "Gráfico de Dispersão",
+      subtitle = "Valores observados vs Resíduos do modelo") +
+    theme_bw() +
+    theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+          plot.caption = element_text(hjust = 1, face = "italic"),
+          plot.subtitle = element_text(hjust = 0.5, face = "bold"),
+          legend.title = element_text(face = "bold"),
+          axis.title = element_text(face = "bold")) 
+  
+  return(grafico_res)
+}
+
+
+
 # Predição do modelo de Regressão 
 # Precisa otimizar, não colocar os números diretamente 
 #* @param x
@@ -190,6 +231,23 @@ return(coeficientes)
 #* @serializer unboxedJSON
 #* @get /predicao
 function(x,grupo) {
+  coeficientes <- as.vector(lm(y ~ x + grupo, data = df)$coefficients)
+  
+  if (length(x) == 1){
+    if (grupo == "B") {
+      coef <- 1.427378}
+    else if (grupo == "C") {  
+      coef <- 3.442200}
+    else {
+      coef <- 0
+    }
+    y <- 1.155123*as.numeric(x) + coef +  1.356496
+    return(y)
+  }
+    else{
+      
+    }
+  
   if (grupo == "B") {
     coef <- 1.427378}
   else if (grupo == "C") {  
