@@ -1,39 +1,26 @@
 library(plumber)
 library(readr)
 library(lubridate)
+library(ggplot2)
 
 # Definir o nome do arquivo CSV
 csv_file <- "dados_regressao.csv"
 
+col_spec <- cols(
+  x = col_double(),
+  grupo = col_character(),
+  y = col_double(),
+  momento_registro = col_datetime(format = "")
+)
+
 # Verificar se o arquivo CSV existe, se não, criar o arquivo com as colunas corretas
 if (!file.exists(csv_file)) {
-  write_csv(data.frame(x = numeric(), grupo = character(), y = numeric(), momento_registro = character()), csv_file)
+  readr::write_csv(data.frame(x = numeric(), grupo = character(), y = numeric(), 
+                       momento_registro = character()), csv_file)
 }
+
 
 #* @apiTitle API para manipulação de dados de regressão
-
-#* Echo back the input
-#* @param msg The message to echo
-#* @get /echo
-function(msg=""){
-  list(msg = paste0("The message is: '", msg, "'"))
-}
-
-#* Plot a histogram
-#* @serializer png
-#* @get /plot
-function(){
-  rand <- rnorm(100)
-  hist(rand)
-}
-
-#* Return the sum of two numbers
-#* @param a The first number to add
-#* @param b The second number to add
-#* @post /sum
-function(a, b){
-  as.numeric(a) + as.numeric(b)
-}
 
 #* Inserir um novo registro no banco de dados
 #* @param x O valor de x (numérico)
@@ -64,9 +51,10 @@ function(x, grupo, y) {
   )
   
   # Adicionar o novo registro ao CSV
-  write_csv(novo_registro, csv_file, append = TRUE)
+  readr::write_csv(novo_registro, csv_file, append = TRUE)
   
-  return(list(success = TRUE, registro = novo_registro))
+  return(list(mensagem = "Novo registro computado no arquivo CSV.", 
+              registro = novo_registro))
 }
 
 #* Modificar um registro existente no banco de dados
@@ -78,7 +66,7 @@ function(x, grupo, y) {
 
 function(id, x = NULL, grupo = NULL, y = NULL) {
   # Ler o banco de dados
-  df <- read_csv(csv_file)
+  df <- readr::read_csv(csv_file, col_types = col_spec)
   
   # Imprimir o dataframe e o número de linhas para diagnóstico
   print(df)
@@ -101,14 +89,14 @@ function(id, x = NULL, grupo = NULL, y = NULL) {
     if (is.na(x)) {
       return(list(error = "O valor de x deve ser numérico."))
     }
-    df$x[id] <- x
+    df[id,"x"] <- x
   }
   
   if (!is.null(grupo)) {
     if (!grupo %in% c("A", "B", "C")) {
       return(list(error = "O grupo deve ser 'A', 'B' ou 'C'."))
     }
-    df$grupo[id] <- grupo
+    df[id,"grupo"] <- grupo
   }
   
   if (!is.null(y)) {
@@ -116,32 +104,142 @@ function(id, x = NULL, grupo = NULL, y = NULL) {
     if (is.na(y)) {
       return(list(error = "O valor de y deve ser numérico."))
     }
-    df$y[id] <- y
+    df[id, "y"] <- y
   }
   
-  # Salvar o arquivo atualizado
-  write_csv(df, csv_file)
-  
-  return(list(success = TRUE, registro_atualizado = df[id, ]))
+  tryCatch({
+    readr::write_csv(df, csv_file)
+    return(list(mensagem = paste("CSV. após a alteração do ID:", id), 
+                ID_alterado= df[id,]))
+  }, error = function(e) {
+    return(list(error = "Erro ao salvar o arquivo CSV."))
+  })
 }
 
 #* Deletar um registro existente no banco de dados
+#*  Fazer com que seja possível deletar mais de um id por vez
 #* @param id O índice do registro a ser deletado
 #* @delete /delete_record
 function(id) {
-  # Ler o banco de dados
-  df <- read_csv(csv_file)
+  df <- readr::read_csv(csv_file, col_types = col_spec)
   
-  # Verificar se o ID existe
-  if (id < 1 || id > nrow(df)) {
-    return(list(error = "ID inválido."))
+  id <- as.numeric(id)
+  
+  if (is.na(id) || id < 1 || id > nrow(df)) {
+    return(list(error = paste("ID inválido. O ID deve estar entre 1 e", nrow(df))))
   }
-  
-  # Deletar o registro
   df <- df[-id, ]
   
-  # Salvar o arquivo atualizado
-  write_csv(df, csv_file)
+  readr::write_csv(df, csv_file)
   
-  return(list(success = TRUE, message = paste("Registro", id, "deletado.")))
+  resultado <- list(mensagem = paste("CSV. após o ID:", id, "ser deletado"), 
+                    data_frame = df)
+  
+  return(resultado)
 }
+
+
+#* Gráfico dispersão com a reta da regressão
+#* @serializer png
+#* @get /grafico_dispersao
+function() {
+  df <- readr::read_csv(csv_file, col_types = col_spec)
+  
+  grafico <- ggplot2::ggplot(df, aes(x = x, y = y, color = grupo)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "black") +  # Reta de regressão
+  labs(title = "Gráfico de Dispersão com Regressão",
+       x = "X",
+       y = "Y",
+       color = "Grupo") +
+  theme_minimal()
+print(grafico)
+}
+
+
+#* Cálculo dos coeficientes da regressão 
+# Cria as variáveis dummy e utiliza o grupo A como referência 
+#*@parser json
+#* @serializer unboxedJSON
+#* @get /estimativas_coeficientes
+function() {
+  df <- readr::read_csv(csv_file, col_types = col_spec)
+  
+  df$grupo <- as.factor(df$grupo)
+  
+  modelo <- lm(y ~ x + grupo, data = df)
+  coeficientes <- list(intercepto = modelo$coefficients[1],
+                       x = modelo$coefficients[2],
+                       grupoB = modelo$coefficients[3],
+                       grupoC = modelo$coefficients[4])
+
+return(coeficientes)
+}
+
+
+#* Resíduos da regressão 
+#*@parser json
+#* @serializer unboxedJSON
+#* @get /residuos
+function() {
+  readr::read_csv(csv_file, col_types = col_spec)
+  
+  residuos <- lm(y ~ x + grupo, data = df)$residuals 
+  
+  return(list(mensagem = "Resíduos do modelo de regressão",
+    Residuos = residuos 
+  ))
+}
+
+
+
+#* QQplot dos resíduos 
+#* @serializer png
+#* @get /grafico_residuos
+function() {
+  df <- readr::read_csv(csv_file, col_types = col_spec)
+  
+  modelo <- lm(y ~ x + grupo, data = df)
+  
+  grafico_res <- qqplot(y,modelo$residuals)
+  
+  print(grafico_res)
+}
+
+
+
+#* Predição do modelo de Regressão 
+# Precisa otimizar, não colocar os números diretamente 
+#* @param x Valor numérico
+#* @param grupo Grupos A, B e C 
+#* @parser json
+#* @serializer unboxedJSON
+#* @get /predicao
+function(x, grupo) {
+  df <- readr::read_csv(csv_file, col_types = col_spec)
+  
+  if (!is.null(x)) {
+    if (!is.numeric(x)) {
+      return(list(error = "O valor atribuído a x deve ser numérico"))
+    }
+  }
+  
+  if (!is.null(grupo)) {
+    if (!grupo %in% c("A", "B", "C")) {
+      return(list(error = "O grupo deve ser 'A', 'B' ou 'C'."))
+    }
+  }
+  
+  
+  x <- as.numeric(x)
+  
+  modelo <- lm(y ~ x + grupo, data = df)
+  
+  predicao_df <- data.frame(x = as.vector(x), 
+                            grupo = as.vector(grupo))
+  
+  
+  predicao_valores <- predict(modelo, predicao_df)
+  
+  return(predicao_valores)
+  }
