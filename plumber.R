@@ -66,7 +66,7 @@ function(x, grupo, y) {
 
 function(id, x = NULL, grupo = NULL, y = NULL) {
   # Ler o banco de dados
-  df <- readr::read_csv(csv_file)
+  df <- readr::read_csv(csv_file, col_types = col_spec)
   
   # Imprimir o dataframe e o número de linhas para diagnóstico
   print(df)
@@ -82,17 +82,6 @@ function(id, x = NULL, grupo = NULL, y = NULL) {
   if (id < 1 || id > nrow(df)) {
     return(list(error = paste("ID inválido. O ID deve estar entre 1 e", nrow(df))))
   }
-  
-  if (df[id, "x"] == x){
-    print(list(error = "O valor fornecido de x é igual ao existente neste id"))
-  }
-  if (df[id, "grupo"] == grupo){
-    print(list(error = "O grupo fornecido é igual ao existente neste id"))
-  }
-  if (df[id, "y"] == y){
-    print(list(error = "O valor fornecido de y é igual ao existente neste id"))
-  }
-  
   
   # Atualizar os valores se fornecidos, verificando se há apenas um valor e se é numérico
   if (!is.null(x)) {
@@ -121,7 +110,7 @@ function(id, x = NULL, grupo = NULL, y = NULL) {
   tryCatch({
     readr::write_csv(df, csv_file)
     return(list(mensagem = paste("CSV. após a alteração do ID:", id), 
-                data_frame = df))
+                ID_alterado= df[id,]))
   }, error = function(e) {
     return(list(error = "Erro ao salvar o arquivo CSV."))
   })
@@ -151,7 +140,7 @@ function(id) {
 
 
 #* Gráfico dispersão com a reta da regressão
-#* @serializer jpeg
+#* @serializer png
 #* @get /grafico_dispersao
 function() {
   df <- readr::read_csv(csv_file, col_types = col_spec)
@@ -164,7 +153,7 @@ function() {
        y = "Y",
        color = "Grupo") +
   theme_minimal()
-return(grafico)
+print(grafico)
 }
 
 
@@ -204,30 +193,17 @@ function() {
 
 
 
-#* Gráfico Valores Observados x Resíduos 
+#* QQplot dos resíduos 
 #* @serializer png
 #* @get /grafico_residuos
 function() {
   df <- readr::read_csv(csv_file, col_types = col_spec)
   
-  dados_graf <- data.frame(residuos = lm(y ~ x + grupo, data = df)$residuals, 
-                           observados = df$y) 
+  modelo <- lm(y ~ x + grupo, data = df)
   
-  grafico_res <- ggplot2::ggplot(dados_graf) +
-    geom_point(mapping = aes(observados, residuos), color = "red") +
-    labs(
-      x = "Obsevados (y)",
-      y = "Resíduos",
-      title = "Gráfico de Dispersão",
-      subtitle = "Valores observados vs Resíduos do modelo") +
-    theme_bw() +
-    theme(plot.title = element_text(hjust = 0.5, face = "bold"),
-          plot.caption = element_text(hjust = 1, face = "italic"),
-          plot.subtitle = element_text(hjust = 0.5, face = "bold"),
-          legend.title = element_text(face = "bold"),
-          axis.title = element_text(face = "bold")) 
+  grafico_res <- qqplot(y,modelo$residuals)
   
-  return(grafico_res)
+  print(grafico_res)
 }
 
 
@@ -242,21 +218,22 @@ function() {
 function(x, grupo) {
   df <- readr::read_csv(csv_file, col_types = col_spec)
   
+  if (!is.null(x)) {
+    if (!is.numeric(x)) {
+      return(list(error = "O valor atribuído a x deve ser numérico"))
+    }
+  }
+  
+  if (!is.null(grupo)) {
+    if (!grupo %in% c("A", "B", "C")) {
+      return(list(error = "O grupo deve ser 'A', 'B' ou 'C'."))
+    }
+  }
+  
+  
   x <- as.numeric(x)
   
-  if(length(x) != length(grupo)){
-    return(list(erro = "As variáveis precisam ter o mesmo tamanho"))
-  }
-  if(!all(sapply(x, is.numeric))){
-    return(list(erro = "x precisa ser um valor numérico"))
-  }
-  
   modelo <- lm(y ~ x + grupo, data = df)
-  
-  if(length(x) > 1){
-    grupo <- jsonlite::fromJSON(grupo)
-    x <- jsonlite::fromJSON(x)
-  }
   
   predicao_df <- data.frame(x = as.vector(x), 
                             grupo = as.vector(grupo))

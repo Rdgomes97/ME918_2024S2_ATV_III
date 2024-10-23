@@ -1,5 +1,6 @@
 # gerador de dados
 ra <- 186777
+set.seed(186777)
 b0 <- runif(1, -2, 2); b1 <- runif(1, -2, 2)
 bB <- 2; bC <- 3
 n <- 25
