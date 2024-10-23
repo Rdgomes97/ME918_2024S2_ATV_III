@@ -6,6 +6,13 @@ library(ggplot2)
 # Definir o nome do arquivo CSV
 csv_file <- "dados_regressao.csv"
 
+col_spec <- cols(
+  x = col_double(),
+  grupo = col_character(),
+  y = col_double(),
+  momento_registro = col_datetime(format = "")
+)
+
 # Verificar se o arquivo CSV existe, se não, criar o arquivo com as colunas corretas
 if (!file.exists(csv_file)) {
   readr::write_csv(data.frame(x = numeric(), grupo = character(), y = numeric(), 
@@ -125,13 +132,6 @@ function(id, x = NULL, grupo = NULL, y = NULL) {
 #* @param id O índice do registro a ser deletado
 #* @delete /delete_record
 function(id) {
-  col_spec <- cols(
-    x = col_double(),
-    grupo = col_character(),
-    y = col_double(),
-    momento_registro = col_datetime(format = "")
-  )
-  
   df <- readr::read_csv(csv_file, col_types = col_spec)
   
   id <- as.numeric(id)
@@ -150,10 +150,12 @@ function(id) {
 }
 
 
-# Gráfico dispersão com Regressão
-#* @serializer png
+#* Gráfico dispersão com a reta da regressão
+#* @serializer jpeg
 #* @get /grafico_dispersao
 function() {
+  df <- readr::read_csv(csv_file, col_types = col_spec)
+  
   grafico <- ggplot2::ggplot(df, aes(x = x, y = y, color = grupo)) +
   geom_point() +
   geom_smooth(method = "lm", se = FALSE, color = "black") +  # Reta de regressão
@@ -166,12 +168,16 @@ return(grafico)
 }
 
 
-# Cálculo dos coeficientes de regressão 
+#* Cálculo dos coeficientes da regressão 
 # Cria as variáveis dummy e utiliza o grupo A como referência 
 #*@parser json
 #* @serializer unboxedJSON
 #* @get /estimativas_coeficientes
 function() {
+  df <- readr::read_csv(csv_file, col_types = col_spec)
+  
+  df$grupo <- as.factor(df$grupo)
+  
   modelo <- lm(y ~ x + grupo, data = df)
   coeficientes <- list(intercepto = modelo$coefficients[1],
                        x = modelo$coefficients[2],
@@ -182,12 +188,15 @@ return(coeficientes)
 }
 
 
-# Resíduos da Regressão 
+#* Resíduos da regressão 
 #*@parser json
 #* @serializer unboxedJSON
 #* @get /residuos
 function() {
+  readr::read_csv(csv_file, col_types = col_spec)
+  
   residuos <- lm(y ~ x + grupo, data = df)$residuals 
+  
   return(list(mensagem = "Resíduos do modelo de regressão",
     Residuos = residuos 
   ))
@@ -195,11 +204,11 @@ function() {
 
 
 
-# Gráfico Valores Observados x Resíduos 
-#* @serializer jpeg
+#* Gráfico Valores Observados x Resíduos 
+#* @serializer png
 #* @get /grafico_residuos
 function() {
-  df <- read_csv(csv_file)
+  df <- readr::read_csv(csv_file, col_types = col_spec)
   
   dados_graf <- data.frame(residuos = lm(y ~ x + grupo, data = df)$residuals, 
                            observados = df$y) 
@@ -223,38 +232,37 @@ function() {
 
 
 
-# Predição do modelo de Regressão 
+#* Predição do modelo de Regressão 
 # Precisa otimizar, não colocar os números diretamente 
-#* @param x
-#* @param grupo
+#* @param x Valor numérico
+#* @param grupo Grupos A, B e C 
 #* @parser json
 #* @serializer unboxedJSON
 #* @get /predicao
-function(x,grupo) {
-  coeficientes <- as.vector(lm(y ~ x + grupo, data = df)$coefficients)
+function(x, grupo) {
+  df <- readr::read_csv(csv_file, col_types = col_spec)
   
-  if (length(x) == 1){
-    if (grupo == "B") {
-      coef <- 1.427378}
-    else if (grupo == "C") {  
-      coef <- 3.442200}
-    else {
-      coef <- 0
-    }
-    y <- 1.155123*as.numeric(x) + coef +  1.356496
-    return(y)
-  }
-    else{
-      
-    }
+  x <- as.numeric(x)
   
-  if (grupo == "B") {
-    coef <- 1.427378}
-  else if (grupo == "C") {  
-    coef <- 3.442200}
-  else {
-    coef <- 0
+  if(length(x) != length(grupo)){
+    return(list(erro = "As variáveis precisam ter o mesmo tamanho"))
   }
-  y <- 1.155123*as.numeric(x) + coef +  1.356496
-  print(y)
+  if(!all(sapply(x, is.numeric))){
+    return(list(erro = "x precisa ser um valor numérico"))
+  }
+  
+  modelo <- lm(y ~ x + grupo, data = df)
+  
+  if(length(x) > 1){
+    grupo <- jsonlite::fromJSON(grupo)
+    x <- jsonlite::fromJSON(x)
+  }
+  
+  predicao_df <- data.frame(x = as.vector(x), 
+                            grupo = as.vector(grupo))
+  
+  
+  predicao_valores <- predict(modelo, predicao_df)
+  
+  return(predicao_valores)
   }
